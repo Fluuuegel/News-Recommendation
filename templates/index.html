@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>News Recommender</title>
+</head>
+<body>
+  <h2>Recommended News</h2>
+  {% for n in news %}
+    <div style="margin-bottom: 20px;">
+      <a href="{{ n.url }}" target="_blank">{{ n.title }}</a><br>
+      <small>{{ n.content[:100] }}...</small><br>
+      <form action="/feedback" method="POST" style="display:inline;">
+        <input type="hidden" name="news_id" value="{{ n.id }}">
+        <button name="action" value="like">👍</button>
+        <button name="action" value="dislike">👎</button>
+      </form>
+    </div>
+  {% endfor %}
+</body>
+</html>

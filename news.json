@@ -1,0 +1,21 @@
+[
+    {
+      "id": 1,
+      "title": "China's Economy Grows in Q1",
+      "url": "https://example.com/news1",
+      "content": "China's economy has shown signs of recovery with 5% growth in the first quarter of 2025. Analysts point to increased exports and industrial production."
+    },
+    {
+      "id": 2,
+      "title": "Climate Change and Global Action",
+      "url": "https://example.com/news2",
+      "content": "World leaders gathered to discuss new climate agreements. Emissions targets and green technology investments were key topics of debate."
+    },
+    {
+      "id": 3,
+      "title": "New AI Breakthroughs in 2025",
+      "url": "https://example.com/news3",
+      "content": "AI models are now capable of generating human-like reasoning. This year, breakthroughs in multi-modal learning and logic chains have taken center stage."
+    }
+  ]
+  
