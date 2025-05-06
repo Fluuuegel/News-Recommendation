@@ -55,7 +55,7 @@ class Article(Document):
     description = Text(analyzer="snowball")
     creator = Text()
     pubDate = Date()
-    category = Keyword()
+    category = Text(analyzer="standard", fields={"raw": Keyword()}, multi=True)
 
     class Index:
         name = "articles"
@@ -100,30 +100,41 @@ def search_articles_by_title(keyword):
     results = s.execute()
 
     print(f"Found {len(results)} results for keyword: '{keyword}'\n")
-    for hit in results:
-        print(f"[{hit.pubDate}] {hit.title}\n{hit.link}\n")
+    # for hit in results:
+    #     print(f"[{hit.pubDate}] {hit.title}\n{hit.link}\n")
 
 # search by categories
 def multi_field_search(keyword):
-    q = Q("multi_match", query=keyword, fields=["title", "description", "creator"])
-    s = Article.search().query(q)
+    q = Q(
+        "multi_match",
+        query=keyword,
+        fields=["title", "description", "creator", "category"],  # 可加 category
+        type="best_fields",  # 也可以试试 "most_fields", "bool_prefix"
+        fuzziness="AUTO",    # 支持模糊匹配（错别字容错）
+        operator="or",       # 多词可单独命中任意词
+        minimum_should_match="70%"  # 降低匹配门槛
+    )
+
+    s = Article.search().query(q).sort("-pubDate")
     results = s.execute()
 
-    print(f"Found {len(results)} results for keyword: '{keyword}'\n")
+    print(f"\n[Multi-field Search] keyword: '{keyword}' → {len(results)} results")
     for hit in results:
-        print(f"[{hit.pubDate}] {hit.title}\n{hit.link}\n")
+        print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n")
 
-# phrase search
-def search_by_category(category_value):
-    q = Q("term", category=category_value)
-    s = Article.search().query(q)
+    return results
+
+# search by category fuzzy
+def search_by_category_fuzzy(keyword):
+    q = Q("match", category=keyword.lower())
+    s = Article.search().query(q).sort("-pubDate")[:50]
     results = s.execute()
 
-    print(f"Found {len(results)} articles with category = '{category_value}'\n")
+    print(f"\n[Category Match Search] keyword = '{keyword}' → {len(results)} results")
     for hit in results:
-        print(f"[{hit.pubDate}] {hit.title} - {hit.category}\n")
+        print(f"- {hit.title} ({hit.pubDate}) — {hit.category}\n  {hit.link}\n")
 
-
+    return results
 
 # a combination of many filters: set author/title/..
 def search_articles_bool(keyword=None, author=None, category=None, max_results=10):
@@ -159,30 +170,30 @@ def search_articles_bool(keyword=None, author=None, category=None, max_results=1
 
 
 # reccomendation search 
-def recommend_articles(user_id, num_results=5):
-    # get articles user likes
-    liked_articles = Feedback.search().filter("term", user_id=user_id).filter("term", liked=True).execute()
-    if not liked_articles:
-        print("No feedback found.")
-        return []
+# def recommend_articles(user_id, num_results=5):
+#     # get articles user likes
+#     liked_articles = Feedback.search().filter("term", user_id=user_id).filter("term", liked=True).execute()
+#     if not liked_articles:
+#         print("No feedback found.")
+#         return []
 
-    liked_ids = [f.article_id for f in liked_articles]
-    base_articles = [Article.get(id=aid) for aid in liked_ids[:5]]  # 取前3篇文章
+#     liked_ids = [f.article_id for f in liked_articles]
+#     base_articles = [Article.get(id=aid) for aid in liked_ids[:5]]  # 取前3篇文章
 
-    # more like this
-    like_clauses = [{"_index": "articles", "_id": a.meta.id} for a in base_articles]
+#     # more like this
+#     like_clauses = [{"_index": "articles", "_id": a.meta.id} for a in base_articles]
 
-    q = Q("more_like_this", fields=["title", "description"], like=like_clauses, min_term_freq=1, min_doc_freq=1)
+#     q = Q("more_like_this", fields=["title", "description"], like=like_clauses, min_term_freq=1, min_doc_freq=1)
 
-    # exclude articles user has seen
-    seen_ids = [f.article_id for f in Feedback.search().filter("term", user_id=user_id).execute()]
-    s = Article.search().query(q).exclude("ids", values=seen_ids)[:num_results]
+#     # exclude articles user has seen
+#     seen_ids = [f.article_id for f in Feedback.search().filter("term", user_id=user_id).execute()]
+#     s = Article.search().query(q).exclude("ids", values=seen_ids)[:num_results]
 
-    results = s.execute()
-    print(f"\n[Recommended for user {user_id}]")
-    for hit in results:
-        print(f"{hit.title}\n{hit.link}\n")
-    return results
+#     results = s.execute()
+#     print(f"\n[Recommended for user {user_id}]")
+#     for hit in results:
+#         print(f"{hit.title}\n{hit.link}\n")
+#     return results
 
 
 
@@ -252,7 +263,7 @@ def build_weighted_keywords(user_id):
 
     return keyword_score, seen_article_ids
 
-def recommend_articles(user_id, top_n_keywords=10, num_results=5):
+def recommend_articles(user_id, top_n_keywords=10, num_results=10):
     keyword_score, seen_ids = build_weighted_keywords(user_id)
     if not keyword_score:
         print("No sufficient feedback found.")
@@ -296,16 +307,89 @@ def index_article(article_data):
 
 
 RSS_FEEDS = [
-    "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+    # World
     "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Africa.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Americas.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/AsiaPacific.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Europe.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml",
+
+    # U.S.
+    "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Education.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Upshot.xml",
+
+    # NY Region
+    "https://rss.nytimes.com/services/xml/rss/nyt/NYRegion.xml",
+
+    # Business
     "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/EnergyEnvironment.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/SmallBusiness.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Dealbook.xml",
+
+    # Science
+    "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Environment.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Space.xml",
+
+    # Technology
+    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/PersonalTech.xml",
+
+    # Health
+    "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Well.xml",
+
+    # Sports
+    "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Baseball.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/CollegeBasketball.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/CollegeFootball.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Golf.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Hockey.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/ProBasketball.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/ProFootball.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Soccer.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Tennis.xml",
+
+    # Arts
     "https://rss.nytimes.com/services/xml/rss/nyt/Arts.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/ArtandDesign.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/BookReview.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Dance.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Movies.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Music.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Television.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Theater.xml",
+
+    # Style
     "https://rss.nytimes.com/services/xml/rss/nyt/FashionandStyle.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml"
+    "https://rss.nytimes.com/services/xml/rss/nyt/DiningandWine.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Love.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/TMagazine.xml",
+
+    # Travel
+    "https://rss.nytimes.com/services/xml/rss/nyt/Travel.xml",
+
+    # Marketplace
+    "https://rss.nytimes.com/services/xml/rss/nyt/Jobs.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/RealEstate.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Automobiles.xml",
+
+    # Others
+    "https://rss.nytimes.com/services/xml/rss/nyt/Opinion.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Food.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Magazine.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/SundayReview.xml"
 ]
+
+
+
+
 
 def retrieve():
     print("[DEBUG] retrieve() called")
@@ -328,8 +412,25 @@ def retrieve():
             print(f"[Error fetching feed] {feed_url} -> {e}")
 
 
+# if __name__ == "__main__":
+#     print("Starting indexer...")
+#     Article.init()
+#     retrieve()
+#     schedule.every(5).minutes.do(retrieve)
+
+#     try:
+#         while True:
+#             schedule.run_pending()
+#             time.sleep(1)
+#     except KeyboardInterrupt:
+#         print("Exiting...")
+
+
+from elasticsearch_dsl import Index
 if __name__ == "__main__":
  print("Starting indexer...")
+
+ Index("articles").delete(ignore=404)
  Article.init()
  retrieve()
  schedule.every(5).minutes.do(retrieve)
