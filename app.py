@@ -3,7 +3,7 @@ from elasticsearch_dsl import connections
 from indexer import Feedback
 
 # import your ES-backed functions
-from indexer import query_articles, submit_feedback, recommend_articles
+from indexer import query_articles, submit_feedback, recommend_articles,query_articles_with_ranking
 
 # ensure ES connection (indexer.py also does this on import)
 connections.create_connection(
@@ -28,7 +28,7 @@ def index():
 def search():
     text  = request.args.get("query", "")
     field = request.args.get("field", "keyword")
-    hits  = query_articles(field, text, max_results=50)
+    hits  = query_articles_with_ranking(field, text, max_results=50)
     return render_template("results.html",
                            news=hits,
                            query=text,

@@ -108,6 +108,7 @@ RSS_FEEDS = [
     "https://rss.nytimes.com/services/xml/rss/nyt/Magazine.xml",
     "https://rss.nytimes.com/services/xml/rss/nyt/SundayReview.xml"
 ]
+
 # record and retrieve user likes/dislikes
 class Feedback(Document):
     user_id = Keyword()       # whose feedback is this
@@ -259,8 +260,10 @@ STOP_WORDS = {
     "did", "what", "when", "where", "why", "how", "however","i", "me", "my", "mine", "our",
     "us", "their", "theirs", "who", "whom", "also", "if", "then", "than",
         "some", "many", "case", "thing", "called", "new", "old", "today", "said",
-    "call", "calls", "use", "used", "one", "two", "three", "more", "other"
+    "call", "calls", "use", "used", "one", "two", "three", "more", "other","no","ever"
 }
+STOP_WORDS.update({chr(c) for c in range(ord('a'), ord('z') + 1)})
+
 
 
 def extract_keywords(text):
@@ -455,3 +458,32 @@ def query_articles(field, text, max_results=30):
 
     s = s.sort("-pubDate")[:max_results]
     return s.execute()
+
+
+
+def query_articles_with_ranking( field, text, max_results=30):
+
+    
+    raw_results = query_articles(field, text, max_results)
+    keyword_score, _ = build_weighted_keywords("user1")
+
+    if not keyword_score:
+        print(f"No user profile found for user: {"user1"}, returning search results.")
+        return raw_results
+
+    top_keywords = [kw for kw, _ in keyword_score.most_common(10)]
+
+ 
+    def weighted_score(article):
+        text = (article.title or "") + " " + (article.description or "")
+        words = re.findall(r'\w+', text.lower())
+        return sum(keyword_score[kw] for kw in top_keywords if kw in words)
+
+    sorted_results = sorted(raw_results, key=weighted_score, reverse=True)
+
+    print(f"\n[Search+Rank] user: {"user1"}, field: {field}, query: '{text}'")
+    print(f"Top keywords: {top_keywords}")
+    for hit in sorted_results[:10]:
+        print(f"- {hit.title} ({hit.pubDate}) | Score: {weighted_score(hit)}")
+
+    return sorted_results
