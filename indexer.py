@@ -186,14 +186,15 @@ def get_all_articles(max_results=100):
 
 
 # single word search
-def search_articles_by_title(keyword):
-    q = Q("match", title=keyword)
-    s = Article.search().query(q)
-    results = s.execute()
+def search_articles_by_title(text):
+    s = Article.search().query("match", title=text)
+    return s
 
-    print(f"Found {len(results)} results for keyword: '{keyword}'\n")
-    # for hit in results:
-    #     print(f"[{hit.pubDate}] {hit.title}\n{hit.link}\n")
+# search by category fuzzy
+def search_by_category_fuzzy(keyword):
+    q = Q("match", category=keyword.lower())
+    s = Article.search().query(q).sort("-pubDate")[:50]
+    return s
 
 # search by categories
 def multi_field_search(keyword):
@@ -213,18 +214,6 @@ def multi_field_search(keyword):
     print(f"\n[Multi-field Search] keyword: '{keyword}' → {len(results)} results")
     for hit in results:
         print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n {hit.content}\n")
-
-    return results
-
-# search by category fuzzy
-def search_by_category_fuzzy(keyword):
-    q = Q("match", category=keyword.lower())
-    s = Article.search().query(q).sort("-pubDate")[:50]
-    results = s.execute()
-
-    print(f"\n[Category Match Search] keyword = '{keyword}' → {len(results)} results")
-    for hit in results:
-        print(f"- {hit.title} ({hit.pubDate}) — {hit.category}\n  {hit.link}\n")
 
     return results
 
@@ -355,7 +344,7 @@ def recommend_articles(user_id, num_results=None):
 
     for hit in results[:10]:  # 打印前10个看一下
         print(f"- {hit.title} ({hit.pubDate})\n  {hit.link}\n")
-
+    
     return results
 
 
@@ -393,16 +382,63 @@ if __name__ == "__main__":
  except KeyboardInterrupt:
      print("Exiting...")
 
+def search_multiple_keywords(field, terms, max_results=30):
+    """
+    field: "keyword"/"title"/"category"
+    terms: 已拆好的关键词列表
+    """
+    must_clauses = []
+
+    if field == "title":
+        # 每个词都做 title match
+        for t in terms:
+            must_clauses.append(
+                Q("match", title={"query": t, "operator": "and"})
+            )
+
+    elif field == "category":
+        # 每个词都做 category match
+        for t in terms:
+            must_clauses.append(
+                Q("match", category={"query": t, "operator": "and"})
+            )
+
+    else:  # keyword 搜索
+        # 每个词都做 multi_match across 多个字段
+        for t in terms:
+            must_clauses.append(
+                Q(
+                  "multi_match",
+                  query=t,
+                  fields=["title", "description", "creator"],
+                  operator="and"
+                )
+            )
+
+    # 把所有 must 子句包到一个 bool 查询里
+    q = Q("bool", must=must_clauses)
+    return Article.search()\
+                  .query(q)\
+                  .sort("-pubDate")[:max_results]\
+                  .execute()
+
 def query_articles(field, text, max_results=30):
     """
     field: "keyword"/"title"/"category"
     text: 查询字符串
     """
+    terms = [w for w in text.strip().split() if w]
+
+    if len(terms) > 1:
+        return search_multiple_keywords(field, terms, max_results)
+    
     if field == "title":
-        s = Article.search().query("match", title=text)
+        #s = Article.search().query("match", title=text)
+        s = search_articles_by_title(text)
     elif field == "category":
         # term 查询 category 列表中的 exact match
-        s = Article.search().query("term", category=text)
+        #s = Article.search().query("term", category=text)
+        s = search_by_category_fuzzy(text)
     else:  # keyword
         s = Article.search().query(
             "multi_match",
