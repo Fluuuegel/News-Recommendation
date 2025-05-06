@@ -151,7 +151,7 @@ def retrieve():
             for entry in feed.entries:
                 try:
                     article_data = parse(entry)
-                    index_article(article_data)
+                    index(article_data)
                 except Exception as e:
                     print(f"[Error indexing entry] {e}")
 
@@ -181,7 +181,8 @@ def get_all_articles(max_results=100):
     results = s.execute()
 
     print(f"Found {len(results)} articles:\n")
-
+    for hit in results:
+        print(f"[{hit.pubDate}] {hit.title}\n id:{hit.meta.id}\n{hit.link}\n")
     return results 
 
 
@@ -213,7 +214,7 @@ def multi_field_search(keyword):
 
     print(f"\n[Multi-field Search] keyword: '{keyword}' → {len(results)} results")
     for hit in results:
-        print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n {hit.content}\n")
+        print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n id:{hit.meta.id}\n{hit.link}\n {hit.content}\n")
 
     return results
 
@@ -227,7 +228,6 @@ def search_articles_bool(keyword=None, author=None, category=None, max_results=1
         must_clauses.append(
             Q("multi_match", query=keyword, fields=["title", "description", "creator"])
         )
-
    
     if author:
         filter_clauses.append(Q("term", creator=author))
@@ -319,6 +319,8 @@ def build_weighted_keywords(user_id):
 
     return keyword_score, seen_article_ids
 
+
+
 def recommend_articles(user_id, num_results=None):
     keyword_score, seen_ids = build_weighted_keywords(user_id)
     if not keyword_score:
@@ -329,23 +331,28 @@ def recommend_articles(user_id, num_results=None):
     should_clauses = [Q("match", title=kw) | Q("match", description=kw) for kw in top_keywords]
 
     q = Q("bool", should=should_clauses, minimum_should_match=1)
-
     s = Article.search().query(q).exclude("ids", values=seen_ids).sort("-pubDate")
+    results = list(s.scan())
+
+    # calculate weighted scores
+    def weighted_score(article):
+        text = (article.title or "") + " " + (article.description or "")
+        words = re.findall(r'\w+', text.lower())
+        return sum(keyword_score[kw] for kw in top_keywords if kw in words)
+
+    # sort articles by scores
+    sorted_results = sorted(results, key=weighted_score, reverse=True)
 
     if num_results is not None:
-        s = s[:num_results]
-        results = s.execute()
-    else:
-        results = list(s.scan())  # 全部获取
+        sorted_results = sorted_results[:num_results]
 
     print(f"\n[Recommendation] user: {user_id}")
     print(f"Top keywords: {top_keywords}\n")
-    print(f"Returned {len(results)} articles.\n")
+    for hit in sorted_results[:10]:
+        print(f"- {hit.title} ({hit.pubDate})\n  Score: {weighted_score(hit)}\n  {hit.link}\n")
 
-    for hit in results[:10]:  # 打印前10个看一下
-        print(f"- {hit.title} ({hit.pubDate})\n  {hit.link}\n")
-    
-    return results
+    return sorted_results
+
 
 
 
@@ -362,7 +369,7 @@ def parse(entry):
     }
 
 
-def index_article(article_data):
+def index(article_data):
     Article(**article_data).save()
 
 
