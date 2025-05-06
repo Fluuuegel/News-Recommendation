@@ -2,4 +2,9 @@ from indexer import get_all_articles,search_articles_by_title, multi_field_searc
 # search_articles_by_title('AI')
 # search_articles_by_title
 
-get_all_articles(1000)
+# get_all_articles(1000)
+
+# search_articles_by_title("Trump")
+
+
+search_by_category("Republican Party")
