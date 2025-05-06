@@ -73,10 +73,8 @@ def get_all_articles(max_results=100):
     results = s.execute()
 
     print(f"Found {len(results)} articles:\n")
-    for hit in results:
-        print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n")
 
-    return results 
+    # return results 
 
 
 # single word search
@@ -282,23 +280,67 @@ def index(article_data):
     Article(**article_data).save()
 
 
+RSS_FEEDS = [
+    "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Arts.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/FashionandStyle.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml"
+]
+
+
+
+
 def retrieve():
-    response = requests.get(
-        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml")
-    feed = feedparser.parse(response.content)
-    for entry in feed.entries:
-        index(parse(entry))
+    print("[DEBUG] retrieve() called")
+
+    for feed_url in RSS_FEEDS:
+        try:
+            print(f"[INFO] Fetching feed: {feed_url}")
+            response = requests.get(feed_url)
+            feed = feedparser.parse(response.content)
+            print(f"[INFO] Entries fetched: {len(feed.entries)}")
+
+            for entry in feed.entries:
+                try:
+                    article_data = parse(entry)
+                    index(article_data)
+                except Exception as e:
+                    print(f"[Error indexing entry] {e}")
+
+        except Exception as e:
+            print(f"[Error fetching feed] {feed_url} -> {e}")
+
+
+# if __name__ == "__main__":
+#     print("Starting indexer...")
+#     Article.init()
+#     retrieve()
+#     schedule.every(5).minutes.do(retrieve)
+
+#     try:
+#         while True:
+#             schedule.run_pending()
+#             time.sleep(1)
+#     except KeyboardInterrupt:
+#         print("Exiting...")
+
 
 
 if __name__ == "__main__":
-    print("Starting indexer...")
-    Article.init()
-    retrieve()
-    schedule.every(5).minutes.do(retrieve)
-
-    try:
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("Exiting...")
+ print("Starting indexer...")
+ Article.init()
+ retrieve()
+ schedule.every(5).minutes.do(retrieve)
+ print("Success! Retrieving new articles once every 5 minutes.")
+ 
+ try:
+     while True:
+         schedule.run_pending()
+         time.sleep(1)
+ except KeyboardInterrupt:
+     print("Exiting...")
