@@ -1,21 +1,58 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>News Recommender</title>
+  <meta charset="utf-8">
+  <title>News Search</title>
 </head>
 <body>
-  <h2>Recommended News</h2>
-  {% for n in news %}
-    <div style="margin-bottom: 20px;">
-      <a href="{{ n.url }}" target="_blank">{{ n.title }}</a><br>
-      <small>{{ n.content[:100] }}...</small><br>
-      <form action="/feedback" method="POST" style="display:inline;">
-        <input type="hidden" name="news_id" value="{{ n.id }}">
-        <button name="action" value="like">👍</button>
-        <button name="action" value="dislike">👎</button>
-      </form>
-    </div>
-  {% endfor %}
+  <h2>Search News</h2>
+  <form id="search-form" action="/search" method="get">
+    <input type="text" name="query" placeholder="Enter keywords..." required>
+    <select name="field">
+      <option value="keyword">Keyword</option>
+      <option value="title">Title</option>
+      <option value="category">Category</option>
+    </select>
+    <button type="submit">Search</button>
+  </form>
+
+  <hr>
+
+  <section id="recommendations" style="margin-top:2em;">
+    <h3>Recommended for You</h3>
+    <div id="rec-list">Loading recommendations…</div>
+  </section>
+
+  <script>
+    function renderRecs(data) {
+      const c = document.getElementById('rec-list');
+      if (!data.length) {
+        c.innerHTML = '<p>No recommendations yet. Give some feedback!</p>';
+        return;
+      }
+      c.innerHTML = '';
+      data.forEach(item => {
+        const div = document.createElement('div');
+        div.style.marginBottom = '1em';
+        div.innerHTML = `
+          <a href="${item.link}" target="_blank"><strong>${item.title}</strong></a><br>
+          <small>Categories: ${item.category.join(', ')}</small>
+        `;
+        c.appendChild(div);
+      });
+    }
+
+    function updateRecs() {
+      fetch('/recommend_json')
+        .then(r => r.json())
+        .then(renderRecs)
+        .catch(e => {
+          console.error('Could not load recommendations', e);
+          document.getElementById('rec-list').innerText = 'Error loading recommendations';
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', updateRecs);
+  </script>
 </body>
 </html>

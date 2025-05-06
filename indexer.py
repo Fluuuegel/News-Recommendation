@@ -45,10 +45,8 @@ def submit_feedback(user_id, article_id, liked=True):
     # make sure there's only 1 feedback on one article at most
     feedback.meta.id = f"{user_id}-{article_id}"
     feedback.save()
-    print(f"[Feedback Saved] user={user_id}, article={article_id}, liked={liked}")
-
-
-
+    # print(f"[Feedback Saved] user={user_id}, article={article_id}, liked={liked}")
+    return feedback
 
 class Article(Document):
     title = Text(analyzer="snowball")
@@ -68,13 +66,31 @@ class Article(Document):
         return super().save(**kwargs)
 
 # get all articles
-def get_all_articles(max_results=100):
-    s = Article.search().sort("-pubDate")[:max_results]
-    results = s.execute()
+# import json
 
-    print(f"Found {len(results)} articles:\n")
+# def get_all_articles(max_results=100):
+#     s = Article.search().sort("-pubDate")[:max_results]
+#     results = s.execute()
 
-    # return results 
+#     print(f"📰 Found {len(results)} articles:\n")
+
+#     for i, hit in enumerate(results, start=1):
+#         article_data = {
+#             "id": hit.meta.id,
+#             "title": hit.title,
+#             "link": hit.link,
+#             "guid": hit.guid,
+#             "description": hit.description,
+#             "creator": hit.creator,
+#             "pubDate": str(hit.pubDate),
+#             "category": list(hit.category) if hit.category else None,
+#         }
+
+#         # Pretty print each article as JSON
+#         print(f"Article {i}:\n{json.dumps(article_data, indent=2, ensure_ascii=False)}\n")
+
+#     return results
+
 
 
 # single word search
@@ -175,7 +191,6 @@ from elasticsearch_dsl import Q
 from collections import Counter
 from datetime import datetime
 import re
-import nltk
 
 # STOP_WORDS = set(stopwords.words('english'))
 STOP_WORDS = {
@@ -276,7 +291,7 @@ def parse(entry):
     }
 
 
-def index(article_data):
+def index_article(article_data):
     Article(**article_data).save()
 
 
@@ -292,9 +307,6 @@ RSS_FEEDS = [
     "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml"
 ]
 
-
-
-
 def retrieve():
     print("[DEBUG] retrieve() called")
 
@@ -308,27 +320,12 @@ def retrieve():
             for entry in feed.entries:
                 try:
                     article_data = parse(entry)
-                    index(article_data)
+                    index_article(article_data)
                 except Exception as e:
                     print(f"[Error indexing entry] {e}")
 
         except Exception as e:
             print(f"[Error fetching feed] {feed_url} -> {e}")
-
-
-# if __name__ == "__main__":
-#     print("Starting indexer...")
-#     Article.init()
-#     retrieve()
-#     schedule.every(5).minutes.do(retrieve)
-
-#     try:
-#         while True:
-#             schedule.run_pending()
-#             time.sleep(1)
-#     except KeyboardInterrupt:
-#         print("Exiting...")
-
 
 
 if __name__ == "__main__":
@@ -344,3 +341,23 @@ if __name__ == "__main__":
          time.sleep(1)
  except KeyboardInterrupt:
      print("Exiting...")
+
+def query_articles(field, text, max_results=30):
+    """
+    field: "keyword"/"title"/"category"
+    text: 查询字符串
+    """
+    if field == "title":
+        s = Article.search().query("match", title=text)
+    elif field == "category":
+        # term 查询 category 列表中的 exact match
+        s = Article.search().query("term", category=text)
+    else:  # keyword
+        s = Article.search().query(
+            "multi_match",
+            query=text,
+            fields=["title", "description", "creator"]
+        )
+
+    s = s.sort("-pubDate")[:max_results]
+    return s.execute()

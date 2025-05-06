@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Search Results</title>
+</head>
+<body>
+  <h2>Results for “{{ query }}” ({{ field }})</h2>
+  <div style="margin: .5em 0; font-weight: bold;">
+    Found {{ news|length }} result{{ 's' if news|length != 1 else '' }}.
+  </div>
+  <a href="/">← New Search</a>
+  <hr>
+
+  <div id="results-list">
+    {% for n in news %}
+      <div style="margin-bottom: 1.5em;">
+        <a href="{{ n.link }}" target="_blank"><strong>{{ n.title }}</strong></a><br>
+        <small>Categories: {{ n.category|join(', ') }}</small><br>
+        <form class="feedback-form" style="display:inline;">
+          <input type="hidden" name="article_id" value="{{ n.meta.id }}">
+          <button name="action" value="like" type="submit">👍 Like</button>
+          <button name="action" value="dislike" type="submit">👎 Dislike</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+
+  <section id="recommendations" style="margin-top:2em;">
+    <h3>Recommended for You</h3>
+    <div id="rec-list">No feedback given yet.</div>
+  </section>
+
+  <script>
+    function renderRecs(data) {
+      const c = document.getElementById('rec-list');
+      if (!data.length) {
+        c.innerHTML = '<p>No recommendations yet. Give some feedback above!</p>';
+        return;
+      }
+      c.innerHTML = '';
+      data.forEach(item => {
+        const div = document.createElement('div');
+        div.style.marginBottom = '1em';
+        div.innerHTML = `
+          <a href="${item.link}" target="_blank"><strong>${item.title}</strong></a><br>
+          <small>Categories: ${item.category.join(', ')}</small>
+        `;
+        c.appendChild(div);
+      });
+    }
+
+    function updateRecs() {
+      fetch('/recommend_json')
+        .then(r => r.json())
+        .then(renderRecs)
+        .catch(console.error);
+    }
+
+    document.querySelectorAll('.feedback-form').forEach(form => {
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const action = e.submitter.value;
+        const articleId = form.querySelector('input[name="article_id"]').value;
+        fetch('/feedback', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ article_id: articleId, action: action })
+        })
+        .then(res => {
+          if (!res.ok) throw new Error("Feedback failed");
+          updateRecs();
+        })
+        .catch(console.error);
+      });
+    });
+
+    document.addEventListener('DOMContentLoaded', updateRecs);
+  </script>
+</body>
+</html>
