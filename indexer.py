@@ -274,9 +274,10 @@ STOP_WORDS = {
 }
 
 
+
 def extract_keywords(text):
     words = re.findall(r'\w+', text.lower())
-    return [w for w in words if w not in STOP_WORDS]
+    return [w for w in words if w not in STOP_WORDS and not w.isdigit()]
 
 def get_feedbacks_with_weights(user_id, max_days=30):
     feedbacks = Feedback.search() \
