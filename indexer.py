@@ -276,7 +276,17 @@ STOP_WORDS = {
 
 def extract_keywords(text):
     words = re.findall(r'\w+', text.lower())
-    return [w for w in words if w not in STOP_WORDS]
+    filtered = []
+    for w in words:
+        if w in STOP_WORDS:
+            continue
+        if w.isdigit():
+            year = int(w)
+            if 1900 <= year <= 2030:  # keep year number
+                filtered.append(w)
+        else:
+            filtered.append(w)
+    return filtered
 
 def get_feedbacks_with_weights(user_id, max_days=30):
     feedbacks = Feedback.search() \
