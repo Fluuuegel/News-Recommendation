@@ -57,7 +57,7 @@ class Article(Document):
     description = Text(analyzer="snowball")
     creator = Text()
     pubDate = Date()
-    category = Keyword()
+    category = Text(analyzer="standard", fields={"raw": Keyword()}, multi=True)
 
     class Index:
         name = "articles"
@@ -89,25 +89,36 @@ def search_articles_by_title(keyword):
 
 # search by categories
 def multi_field_search(keyword):
-    q = Q("multi_match", query=keyword, fields=["title", "description", "creator"])
-    s = Article.search().query(q)
+    q = Q(
+        "multi_match",
+        query=keyword,
+        fields=["title", "description", "creator", "category"],  # 可加 category
+        type="best_fields",  # 也可以试试 "most_fields", "bool_prefix"
+        fuzziness="AUTO",    # 支持模糊匹配（错别字容错）
+        operator="or",       # 多词可单独命中任意词
+        minimum_should_match="70%"  # 降低匹配门槛
+    )
+
+    s = Article.search().query(q).sort("-pubDate")
     results = s.execute()
 
-    print(f"Found {len(results)} results for keyword: '{keyword}'\n")
+    print(f"\n[Multi-field Search] keyword: '{keyword}' → {len(results)} results")
     for hit in results:
-        print(f"[{hit.pubDate}] {hit.title}\n{hit.link}\n")
+        print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n")
 
-# phrase search
-def search_by_category(category_value):
-    q = Q("term", category=category_value)
-    s = Article.search().query(q)
+    return results
+
+# search by category fuzzy
+def search_by_category_fuzzy(keyword):
+    q = Q("match", category=keyword.lower())
+    s = Article.search().query(q).sort("-pubDate")[:50]
     results = s.execute()
 
-    print(f"Found {len(results)} articles with category = '{category_value}'\n")
+    print(f"\n[Category Match Search] keyword = '{keyword}' → {len(results)} results")
     for hit in results:
-        print(f"[{hit.pubDate}] {hit.title} - {hit.category}\n")
+        print(f"- {hit.title} ({hit.pubDate}) — {hit.category}\n  {hit.link}\n")
 
-
+    return results
 
 # a combination of many filters: set author/title/..
 def search_articles_bool(keyword=None, author=None, category=None, max_results=10):
@@ -143,30 +154,30 @@ def search_articles_bool(keyword=None, author=None, category=None, max_results=1
 
 
 # reccomendation search 
-def recommend_articles(user_id, num_results=5):
-    # get articles user likes
-    liked_articles = Feedback.search().filter("term", user_id=user_id).filter("term", liked=True).execute()
-    if not liked_articles:
-        print("No feedback found.")
-        return []
+# def recommend_articles(user_id, num_results=5):
+#     # get articles user likes
+#     liked_articles = Feedback.search().filter("term", user_id=user_id).filter("term", liked=True).execute()
+#     if not liked_articles:
+#         print("No feedback found.")
+#         return []
 
-    liked_ids = [f.article_id for f in liked_articles]
-    base_articles = [Article.get(id=aid) for aid in liked_ids[:5]]  # 取前3篇文章
+#     liked_ids = [f.article_id for f in liked_articles]
+#     base_articles = [Article.get(id=aid) for aid in liked_ids[:5]]  # 取前3篇文章
 
-    # more like this
-    like_clauses = [{"_index": "articles", "_id": a.meta.id} for a in base_articles]
+#     # more like this
+#     like_clauses = [{"_index": "articles", "_id": a.meta.id} for a in base_articles]
 
-    q = Q("more_like_this", fields=["title", "description"], like=like_clauses, min_term_freq=1, min_doc_freq=1)
+#     q = Q("more_like_this", fields=["title", "description"], like=like_clauses, min_term_freq=1, min_doc_freq=1)
 
-    # exclude articles user has seen
-    seen_ids = [f.article_id for f in Feedback.search().filter("term", user_id=user_id).execute()]
-    s = Article.search().query(q).exclude("ids", values=seen_ids)[:num_results]
+#     # exclude articles user has seen
+#     seen_ids = [f.article_id for f in Feedback.search().filter("term", user_id=user_id).execute()]
+#     s = Article.search().query(q).exclude("ids", values=seen_ids)[:num_results]
 
-    results = s.execute()
-    print(f"\n[Recommended for user {user_id}]")
-    for hit in results:
-        print(f"{hit.title}\n{hit.link}\n")
-    return results
+#     results = s.execute()
+#     print(f"\n[Recommended for user {user_id}]")
+#     for hit in results:
+#         print(f"{hit.title}\n{hit.link}\n")
+#     return results
 
 
 
@@ -237,7 +248,7 @@ def build_weighted_keywords(user_id):
 
     return keyword_score, seen_article_ids
 
-def recommend_articles(user_id, top_n_keywords=10, num_results=5):
+def recommend_articles(user_id, top_n_keywords=10, num_results=10):
     keyword_score, seen_ids = build_weighted_keywords(user_id)
     if not keyword_score:
         print("No sufficient feedback found.")
@@ -400,9 +411,11 @@ def retrieve():
 #         print("Exiting...")
 
 
-
+from elasticsearch_dsl import Index
 if __name__ == "__main__":
  print("Starting indexer...")
+
+ Index("articles").delete(ignore=404)
  Article.init()
  retrieve()
  schedule.every(5).minutes.do(retrieve)
