@@ -65,34 +65,6 @@ class Article(Document):
         self.meta.id = self.guid
         return super().save(**kwargs)
 
-# get all articles
-# import json
-
-# def get_all_articles(max_results=100):
-#     s = Article.search().sort("-pubDate")[:max_results]
-#     results = s.execute()
-
-#     print(f"📰 Found {len(results)} articles:\n")
-
-#     for i, hit in enumerate(results, start=1):
-#         article_data = {
-#             "id": hit.meta.id,
-#             "title": hit.title,
-#             "link": hit.link,
-#             "guid": hit.guid,
-#             "description": hit.description,
-#             "creator": hit.creator,
-#             "pubDate": str(hit.pubDate),
-#             "category": list(hit.category) if hit.category else None,
-#         }
-
-#         # Pretty print each article as JSON
-#         print(f"Article {i}:\n{json.dumps(article_data, indent=2, ensure_ascii=False)}\n")
-
-#     return results
-
-
-
 # single word search
 def search_articles_by_title(keyword):
     q = Q("match", title=keyword)
@@ -166,36 +138,6 @@ def search_articles_bool(keyword=None, author=None, category=None, max_results=1
         print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n")
 
     return results
-
-
-
-# reccomendation search 
-# def recommend_articles(user_id, num_results=5):
-#     # get articles user likes
-#     liked_articles = Feedback.search().filter("term", user_id=user_id).filter("term", liked=True).execute()
-#     if not liked_articles:
-#         print("No feedback found.")
-#         return []
-
-#     liked_ids = [f.article_id for f in liked_articles]
-#     base_articles = [Article.get(id=aid) for aid in liked_ids[:5]]  # 取前3篇文章
-
-#     # more like this
-#     like_clauses = [{"_index": "articles", "_id": a.meta.id} for a in base_articles]
-
-#     q = Q("more_like_this", fields=["title", "description"], like=like_clauses, min_term_freq=1, min_doc_freq=1)
-
-#     # exclude articles user has seen
-#     seen_ids = [f.article_id for f in Feedback.search().filter("term", user_id=user_id).execute()]
-#     s = Article.search().query(q).exclude("ids", values=seen_ids)[:num_results]
-
-#     results = s.execute()
-#     print(f"\n[Recommended for user {user_id}]")
-#     for hit in results:
-#         print(f"{hit.title}\n{hit.link}\n")
-#     return results
-
-
 
 # gradually adjusts selection recommendations
 from elasticsearch_dsl import Q

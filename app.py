@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, jsonify
 from elasticsearch_dsl import connections
+from indexer import Feedback
 
 # import your ES-backed functions
 from indexer import query_articles, submit_feedback, recommend_articles
@@ -11,6 +12,9 @@ connections.create_connection(
     verify_certs=False,
     ssl_show_warn=False
 )
+
+Feedback._index.delete(ignore=[404])
+Feedback.init()
 
 app = Flask(__name__)
 USER_ID = "user1"  # demo user
