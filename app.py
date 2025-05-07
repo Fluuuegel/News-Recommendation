@@ -28,7 +28,7 @@ def index():
 def search():
     text  = request.args.get("query", "")
     field = request.args.get("field", "keyword")
-    hits  = query_articles_with_ranking(field, text, max_results=50)
+    hits  = query_articles(field, text, max_results=50)
     return render_template("results.html",
                            news=hits,
                            query=text,
