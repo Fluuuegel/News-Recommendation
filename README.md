@@ -5,6 +5,11 @@
 ### How to deploy
 
 
+# 
+pip install newspaper3k
+pip install scikit-learn
+
+
 
 1. `git clone ...`
 
