@@ -5,7 +5,9 @@
 ### How to deploy
 
 
-# 
+# download needed requirements:
+
+pip install elasticsearch
 pip install newspaper3k
 pip install scikit-learn
 
@@ -36,6 +38,8 @@ pip install scikit-learn
 5. Run:
 
     ```bash
+    python build_tf_idf.py   // this is to get the tf-idfs before use
+    
     python indexer.py
     ```
 
