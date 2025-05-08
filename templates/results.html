@@ -6,6 +6,15 @@
 </head>
 <body>
   <h2>Results for “{{ query }}” ({{ field }})</h2>
+  <form id="sort-form" method="get" action="/search" style="margin-bottom: 1em;">
+    <input type="hidden" name="query" value="{{ query }}">
+    <input type="hidden" name="field" value="{{ field }}">
+    <label for="sort_by"><strong>Sort by:</strong></label>
+    <select name="sort_by" id="sort_by" onchange="document.getElementById('sort-form').submit()">
+      <option value="relevance" {% if sort_by == "relevance" %}selected{% endif %}>Relevance</option>
+      <option value="time" {% if sort_by == "time" %}selected{% endif %}>Time (Latest)</option>
+    </select>
+  </form>
   <div style="margin: .5em 0; font-weight: bold;">
     Found {{ news|length }} result{{ 's' if news|length != 1 else '' }}.
   </div>

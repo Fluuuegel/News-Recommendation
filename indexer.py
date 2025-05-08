@@ -14,6 +14,7 @@ import numpy as np
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+
 global_idf = None
 global_vocab = None
 
@@ -25,20 +26,25 @@ if os.path.exists(idf_path) and os.path.exists(vocab_path):
     global_vocab = joblib.load(vocab_path)
     print("TF-IDF global TF-IDF loaded")
 else:
-    print("TF-IDF not detecting global_idf.pkl 或 global_vocab.pkl，")
+    print("TF-IDF not detecting global_idf.pkl or global_vocab.pkl，")
 
 
+def get_tfidf_matrix(texts):
+    global global_idf, global_vocab
 
-def build_and_save_global_tfidf():
-    all_articles = get_all_articles(max_results=10000)
-    all_texts = [ (a.title or "") + " " + (a.description or "") for a in all_articles ]
+    if global_idf is None or global_vocab is None:
+        if not os.path.exists(idf_path) or not os.path.exists(vocab_path):
+            raise RuntimeError("global_idf.pkl or global_vocab.pkl doesn't exist")
+        global_idf = joblib.load(idf_path)
+        global_vocab = joblib.load(vocab_path)
 
-    vectorizer = TfidfVectorizer(tokenizer=extract_keywords)
-    vectorizer.fit(all_texts)
+    count_vectorizer = CountVectorizer(tokenizer=extract_keywords, vocabulary=global_vocab)
+    tf_matrix = count_vectorizer.fit_transform(texts)
 
-    joblib.dump(vectorizer.idf_, idf_path)
-    joblib.dump(vectorizer.vocabulary_, vocab_path)
-    print("[Success] global_idf.pkl 和 global_vocab.pkl generated！")
+    transformer = TfidfTransformer()
+    transformer.idf_ = global_idf 
+
+    return transformer.transform(tf_matrix), count_vectorizer.get_feature_names_out()
 
 
 
@@ -53,17 +59,6 @@ def fetch_full_content(url):
     except Exception as e:
         print(f"Failed to fetch full content from {url}: {e}")
         return ""
-
-
-# Retrieves environment variables ES_HOST, ES_USER, and ES_PASS
-# On Windows you can set them with the syntax "$env:ES_USER=user"
-# connections.create_connection(
-#     hosts=os.environ.get("ES_HOST", "https://localhost:9200"),
-#     basic_auth=(os.environ["ES_USER"], os.environ["ES_PASS"]),
-#     verify_certs=False,
-#     ssl_show_warn=False, 
-#     timeout=20
-# )
 
 connections.create_connection(
     hosts=["http://localhost:9200"],  # local Docker 
@@ -156,7 +151,7 @@ RSS_FEEDS = [
 
 # record and retrieve user likes/dislikes
 class Feedback(Document):
-    user_id = Keyword()       # whose feedback is this
+    user_id = Keyword()       
     article_id = Keyword()    # article id of the feedback target
     liked = Boolean()         # True: like / False: dislike
     timestamp = Date()        # feedback date
@@ -213,7 +208,6 @@ def submit_feedback(user_id, article_id, liked=True):
         liked=liked,
         timestamp=datetime.now()
     )
-    # make sure there's only 1 feedback on one article at most
     feedback.meta.id = f"{user_id}-{article_id}"
     feedback.save()
     print(f"[Feedback Saved] user={user_id}, article={article_id}, liked={liked}")
@@ -227,8 +221,8 @@ def get_all_articles(max_results=100):
     results = s.execute()
 
     print(f"Found {len(results)} articles:\n")
-    for hit in results:
-        print(f"[{hit.pubDate}] {hit.title}\n id:{hit.meta.id}\n{hit.link}\n content:{hit.content} \n")
+    # for hit in results:
+    #    print(f"[{hit.pubDate}] {hit.title}\n id:{hit.meta.id}\n{hit.link}\n content:{hit.content} \n")
     return results 
 
 
@@ -239,24 +233,21 @@ def search_articles_by_title(text):
 
 # search by category fuzzy
 def search_by_category_fuzzy(keyword):
-    q = Q("match", category=keyword.lower())
+    q = Q("match", category={"query": keyword, "fuzziness": "AUTO"})
     s = Article.search().query(q).sort("-pubDate")[:50]
     return s
 
-# search in all fields
-def search_keywords(keywords, max_results=999, min_match_ratio="40%"):
 
+# search in all fields
+def search_keywords(keywords, max_results=999, min_match_ratio="60%"):
     if isinstance(keywords, str):
         terms = [w for w in keywords.strip().split() if w]
     else:
         terms = keywords
     print("-------searching query is----- " + " ".join(terms))
- 
-
     s = Article.search()
 
     if len(terms) == 1:
-        print("------------now term is 1 --------------")
         q = Q(
             "multi_match",
             query=terms[0],
@@ -264,67 +255,21 @@ def search_keywords(keywords, max_results=999, min_match_ratio="40%"):
             type="most_fields",
             operator="or"
         )
-        results = s.query(q).sort("-pubDate")[:max_results].execute()
+        results = s.query(q)[:max_results].execute()  
     else:
-  
-        should_clauses = []
-        for kw in terms:
-            should_clauses.append(
-                Q("multi_match", query=kw, fields=["title", "description", "creator", "category", "content"], type="most_fields", operator="or")
-            )
-
+        should_clauses = [
+            Q("multi_match", query=kw, fields=["title", "description", "creator", "category", "content"], type="most_fields", operator="or")
+            for kw in terms
+        ]
         q = Q("bool", should=should_clauses, minimum_should_match=min_match_ratio)
-        raw_results = s.query(q).sort("-pubDate")[:max_results].execute()
+        results = s.query(q)[:max_results].execute()  
 
-       # sort by matching counts 
-        print("sorting by matching counts")
-        def count_matches(article):
-            content = (article.title or "") + " " + (article.description or "") + " " + (article.content or "")
-            text = content.lower()
-            match_count = sum(1 for term in terms if term.lower() in text)
-            print(f"------------Match count: {match_count} → {article.title}")
-            return match_count
-        
-
-        results = sorted(raw_results, key=count_matches, reverse=True)
-
-    print(f"\n[Unified Search] keywords: {terms}, min_match: {min_match_ratio} — Found {len(results)} results\n")
-    for hit in results[:10]:
-        print(f"- {hit.title} ({hit.pubDate})\n   \n  {hit.link}\n")
+    for hit in results[:10]:  
+        print(f"- {hit.title} ({hit.pubDate})\n content_{hit.content} \n{hit.link}\n")
 
     return results
 
 
-
-# a combination of many filters: set author/title/..
-def search_articles_bool(keyword=None, author=None, category=None, max_results=10):
-    must_clauses = []
-    filter_clauses = []
-
-    # keyword title / description / creator
-    if keyword:
-        must_clauses.append(
-            Q("multi_match", query=keyword, fields=["title", "description", "creator"])
-        )
-   
-    if author:
-        filter_clauses.append(Q("term", creator=author))
-
-    
-    if category:
-        filter_clauses.append(Q("term", category=category))
-
-    
-    q = Q("bool", must=must_clauses, filter=filter_clauses)
-
-    s = Article.search().query(q).sort("-pubDate")[:max_results]
-    results = s.execute()
-
-    print(f"Found {len(results)} results with keyword='{keyword}', author='{author}', category='{category}'\n")
-    for hit in results:
-        print(f"[{hit.pubDate}] {hit.title} — {hit.creator} / {hit.category}\n{hit.link}\n")
-
-    return results
 
 
 
@@ -401,7 +346,7 @@ def build_weighted_keywords(user_id):
 
 
 
-def recommend_articles(user_id, num_results=None):
+def recommend_articles(user_id, num_results=15):
     weighted_feedbacks = get_feedbacks_with_weights(user_id)
     if not weighted_feedbacks:
         print("No sufficient feedback found.")
@@ -415,7 +360,7 @@ def recommend_articles(user_id, num_results=None):
     for article_id, weight in weighted_feedbacks:
         try:
             article = Article.get(id=article_id)
-            text = (article.title or "") + " " + (article.description or "")
+            text = (article.title or "") + " " + (article.description or "")+ (article.content or "")
             article_texts.append(text)
             feedback_weights.append(weight)
             seen_ids.append(article.meta.id)
@@ -426,14 +371,8 @@ def recommend_articles(user_id, num_results=None):
         print("No articles found for feedbacks.")
         return []
 
-    count_vectorizer = CountVectorizer(tokenizer=extract_keywords, vocabulary=global_vocab)
-    tf_matrix = count_vectorizer.fit_transform(article_texts)
-
     transformer = TfidfTransformer()
     transformer.idf_ = global_idf
-    
-    
-    # feature_names = count_vectorizer.get_feature_names_out()
 
     tfidf_matrix, feature_names = get_tfidf_matrix(article_texts)
 
@@ -449,9 +388,15 @@ def recommend_articles(user_id, num_results=None):
         print("No keyword scores available.")
         return []
 
-
-    top_keywords = [kw for kw, _ in keyword_score.most_common(10)]
-    should_clauses = [Q("match", title=kw) | Q("match", description=kw) for kw in top_keywords]
+    positive = [(kw, score) for kw, score in keyword_score.items() if score > 0]
+    positive.sort(key=lambda x: x[1], reverse=True)
+    top_keywords = [kw for kw, _ in positive[:10]]
+    should_clauses = [
+    Q("match", title=kw) |    
+    Q("match", description=kw) |  
+    Q("match", content=kw)        
+    for kw in top_keywords
+]
     q = Q("bool", should=should_clauses, minimum_should_match=1)
 
     s = Article.search().query(q).exclude("ids", values=seen_ids).sort("-pubDate")
@@ -494,24 +439,6 @@ def index(article_data):
     Article(**article_data).save()
 
 
-if __name__ == "__main__":
- print("Starting indexer...")
-
-#  global_idf = joblib.load("idf.pkl")
-#  global_vocab = joblib.load("vocab.pkl")
- build_and_save_global_tfidf()
- Index("articles").delete(ignore=404)
- Article.init()
- retrieve()
- schedule.every(5).minutes.do(retrieve)
- print("Success! Retrieving new articles once every 5 minutes.")
- 
- try:
-     while True:
-         schedule.run_pending()
-         time.sleep(1)
- except KeyboardInterrupt:
-     print("Exiting...")
 
 
 
@@ -532,79 +459,56 @@ def search_by_content(text, max_results=999):
     return list(results)
 
 
-
-
-def query_articles(field, text, max_results=999):
-
+def query_articles(field, text, max_results=999, sort_by="relevance"):
     terms = [w for w in text.strip().split() if w]
 
-    # if len(terms) > 1:
-    #     print("now searching by search_multiple_keywords")
-    #     return search_keywords(field, terms, max_results)
-    
+
+    if field == "keyword":
+        results = search_keywords(text, max_results=max_results, min_match_ratio="60%")
+        return sort_results(results, sort_by)
+
+
     if field == "title":
-        #s = Article.search().query("match", title=text)
         s = search_articles_by_title(text)
     elif field == "category":
-        # term 查询 category 列表中的 exact match
-        #s = Article.search().query("term", category=text)
         s = search_by_category_fuzzy(text)
-    else:  # keyword
-        print("now searching by search_keywords")
-        s = search_keywords(text,999,"40%")
-        return s
+    else:
+        raise ValueError(f"Unknown field: {field}")
 
+    if sort_by == "time":
+        s = s.sort("-pubDate")
 
     return s.execute()
 
+def sort_results(results, sort_by):
+    if sort_by == "time":
+        return sorted(results, key=lambda a: a.pubDate, reverse=True)
+    return results
 
 
-def query_articles_with_ranking( field, text, max_results=30):
 
-    
-    raw_results = query_articles(field, text, max_results)
-    keyword_score, _ = build_weighted_keywords("user1")
 
-    if not keyword_score:
-        print(f"No user profile found for user: {"user1"}, returning search results.")
-        return raw_results
 
-    top_keywords = [kw for kw, _ in keyword_score.most_common(10)]
 
+
+
+
+if __name__ == "__main__":
+ print("Starting indexer...")
+
+
+
+
+ Index("articles").delete(ignore=404)
+ Article.init()
+ retrieve()
+ print("Success! Retrieving new articles once every 5 minutes.")
+ schedule.every(5).minutes.do(retrieve)
+#  print("Success! Retrieving new articles once every 5 minutes.")
  
-    def weighted_score(article):
-        text = (article.title or "") + " " + (article.description or "")
-        words = re.findall(r'\w+', text.lower())
-        return sum(keyword_score[kw] for kw in top_keywords if kw in words)
-
-    sorted_results = sorted(raw_results, key=weighted_score, reverse=True)
-
-    print(f"\n[Search+Rank] user: {"user1"}, field: {field}, query: '{text}'")
-    print(f"Top keywords: {top_keywords}")
-    for hit in sorted_results[:10]:
-        print(f"- {hit.title} ({hit.pubDate}) | Score: {weighted_score(hit)}")
-
-    return sorted_results
-
-
-
-
-
-def get_tfidf_matrix(texts):
-    global global_idf, global_vocab
-
-    if global_idf is None or global_vocab is None:
-        print("[TF-IDF] 模型尚未加载，尝试加载中...")
-        if not os.path.exists(idf_path) or not os.path.exists(vocab_path):
-            raise RuntimeError("global_idf.pkl 或 global_vocab.pkl 文件不存在")
-        global_idf = joblib.load(idf_path)
-        global_vocab = joblib.load(vocab_path)
-        print("[TF-IDF] 模型加载完成")
-
-    count_vectorizer = CountVectorizer(tokenizer=extract_keywords, vocabulary=global_vocab)
-    tf_matrix = count_vectorizer.fit_transform(texts)
-
-    transformer = TfidfTransformer()
-    transformer.idf_ = global_idf  # 设置 IDF
-
-    return transformer.transform(tf_matrix), count_vectorizer.get_feature_names_out()
+ try:
+     while True:
+         schedule.run_pending()
+         time.sleep(1)
+ except KeyboardInterrupt:
+     print("Exiting...")

@@ -6,14 +6,15 @@ from indexer import get_all_articles, extract_keywords
 
 all_articles = get_all_articles(max_results=1000)
 all_texts = [
-    (a.title or "") + " " + (a.description or "") for a in all_articles
+    (a.title or "") + " " + (a.description or "") + " " + (a.content or "")
+        for a in all_articles
 ]
 
 vectorizer = TfidfVectorizer(tokenizer=extract_keywords)
 vectorizer.fit(all_texts)
 
 
-joblib.dump(vectorizer.idf_, "idf.pkl")
-joblib.dump(vectorizer.vocabulary_, "vocab.pkl")
+joblib.dump(vectorizer.idf_, "global_idf.pkl")
+joblib.dump(vectorizer.vocabulary_, "global_vocab.pkl")
 
-print("idf.pkl 和vocab.pkl 已生成！")
+print("global_idf.pkl and global_vocab.pkl generated！")
